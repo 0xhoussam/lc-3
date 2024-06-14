@@ -1,5 +1,13 @@
+use core::panic;
+use std::io;
+use std::io::Read;
+use std::io::Write;
+use std::process::exit;
+
 use crate::vm::instructions;
 use crate::vm::opcode;
+use crate::vm::syscall;
+
 pub struct Cpu {
     pub registers: [u16; 10],
 }
@@ -151,7 +159,57 @@ impl Cpu {
                 mem[idx as usize] = self.registers[store_register.src()];
             }
 
-            Ok(OpCode::ExecTrap) => {}
+            Ok(OpCode::ExecTrap) => {
+                let syscall = instructions::SysCall::from(inst);
+                match syscall.trap_vect_8().try_into() {
+                    Ok(syscall::SysCall::GetC) => {
+                        let mut buff: [u8; 1] = [0; 1];
+                        io::stdin().read(&mut buff).unwrap();
+                        self.registers[Cpu::R0] = buff[0] as u16;
+                        self.update_flag(Cpu::R0);
+                    }
+                    Ok(syscall::SysCall::Out) => {
+                        let buff = [self.registers[Cpu::R0] as u8; 1];
+                        io::stdout().write_all(&buff).unwrap();
+                    }
+                    Ok(syscall::SysCall::PutS) => {
+                        let mut idx = self.registers[Cpu::R0] as usize;
+                        let mut str = String::from("");
+                        while mem[idx] != 0 {
+                            str.push(char::from_u32(mem[idx].into()).unwrap());
+                            idx += 1;
+                        }
+                        print!("{str}");
+                        io::stdout().flush().unwrap();
+                    }
+                    Ok(syscall::SysCall::In) => {
+                        print!("input: ");
+                        io::stdout().flush().unwrap();
+
+                        let mut buff: [u8; 1] = [0; 1];
+                        io::stdin().read(&mut buff).unwrap();
+                        self.registers[Cpu::R0] = buff[0] as u16;
+                        self.update_flag(Cpu::R0);
+                    }
+                    Ok(syscall::SysCall::PutSp) => {
+                        let mut idx = self.registers[Cpu::R0] as usize;
+                        let mut str = String::from("");
+                        while mem[idx] != 0 {
+                            let low = (mem[idx] & 0xFF) as u8;
+                            let high = ((mem[idx] >> 8) & 0xFF) as u8;
+                            str.push(char::from_u32(low.into()).unwrap());
+                            str.push(char::from_u32(high.into()).unwrap());
+                            idx += 1;
+                        }
+                        io::stdout().write_all(&str.as_bytes()).unwrap();
+                    }
+                    Ok(syscall::SysCall::Halt) => {
+                        println!("HALT");
+                        exit(0);
+                    }
+                    Err(_) => panic!("bad syscall"),
+                }
+            }
 
             Err(_) => panic!("bad opcode"),
         }
@@ -175,23 +233,8 @@ impl Cpu {
     }
 }
 
-enum ConditionFlags {
-    Negative,
-    Zero,
-    Positive,
-}
-
 const FL_POS: u16 = 1 << 0;
 const FL_ZERO: u16 = 1 << 1;
 const FL_NEG: u16 = 1 << 2;
 
 const PC_START: u16 = 0x3000;
-
-enum SysCalls {
-    GetC = 0x20,
-    Out = 0x21,
-    PutS = 0x22,
-    In = 0x23,
-    PutSp = 0x24,
-    Halt = 0x25,
-}

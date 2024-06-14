@@ -227,3 +227,15 @@ pub struct Not {
     #[bits(4)]
     pub opcode: OpCode,
 }
+
+#[bitfield(u16)]
+pub struct SysCall {
+    #[bits(8)]
+    pub trap_vect_8: usize,
+
+    #[bits(4)]
+    padding: usize,
+
+    #[bits(4)]
+    pub opcode: OpCode,
+}
